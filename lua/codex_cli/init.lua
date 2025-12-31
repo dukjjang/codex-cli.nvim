@@ -4,6 +4,19 @@ local default_config = {
   tmux = {
     command = "codex",
   },
+  ui = {
+    mode = "popup", -- "popup" or "split"
+    command = "codex",
+    split = {
+      direction = "right", -- "right" or "below"
+      size = 0.4, -- width/height ratio
+    },
+    popup = {
+      width = 0.8,
+      height = 0.8,
+      border = "rounded",
+    },
+  },
   keymaps = {
     enabled = true,
     ask = "<leader>aa",
@@ -21,15 +34,111 @@ end
 
 local function tmux_available()
   if vim.fn.executable("tmux") ~= 1 then
-    notify_err("tmux executable not found in PATH")
     return false
   end
 
   if not vim.env.TMUX or vim.env.TMUX == "" then
-    notify_err("Not running inside a tmux session")
     return false
   end
 
+  return true
+end
+
+local function normalize_ratio(value)
+  if type(value) ~= "number" then
+    return 0.5
+  end
+  return math.min(0.95, math.max(0.2, value))
+end
+
+local terminal_state = {
+  bufnr = nil,
+  winid = nil,
+  job_id = nil,
+}
+
+local function is_job_running(job_id)
+  if not job_id or job_id <= 0 then
+    return false
+  end
+  local result = vim.fn.jobwait({ job_id }, 0)[1]
+  return result == -1
+end
+
+local function open_popup(bufnr)
+  local ui = config.ui.popup
+  local width = math.floor(vim.o.columns * normalize_ratio(ui.width))
+  local height = math.floor(vim.o.lines * normalize_ratio(ui.height))
+  local row = math.floor((vim.o.lines - height) / 2)
+  local col = math.floor((vim.o.columns - width) / 2)
+
+  return vim.api.nvim_open_win(bufnr, true, {
+    relative = "editor",
+    row = row,
+    col = col,
+    width = width,
+    height = height,
+    border = ui.border or "rounded",
+    style = "minimal",
+  })
+end
+
+local function open_split(bufnr)
+  local direction = config.ui.split.direction
+  local size_ratio = normalize_ratio(config.ui.split.size)
+  local prev_win = vim.api.nvim_get_current_win()
+
+  if direction == "below" then
+    local height = math.floor(vim.o.lines * size_ratio)
+    vim.cmd(string.format("botright %dsplit", height))
+  else
+    local width = math.floor(vim.o.columns * size_ratio)
+    vim.cmd(string.format("botright %dvsplit", width))
+  end
+
+  local winid = vim.api.nvim_get_current_win()
+  vim.api.nvim_win_set_buf(winid, bufnr)
+  vim.api.nvim_set_current_win(prev_win)
+
+  return winid
+end
+
+local function ensure_terminal()
+  if terminal_state.bufnr and vim.api.nvim_buf_is_valid(terminal_state.bufnr) then
+    if terminal_state.job_id and is_job_running(terminal_state.job_id) then
+      return terminal_state.bufnr, terminal_state.job_id
+    end
+  end
+
+  local bufnr = vim.api.nvim_create_buf(true, false)
+  local winid
+  if config.ui.mode == "split" then
+    winid = open_split(bufnr)
+  else
+    winid = open_popup(bufnr)
+  end
+
+  local job_id = vim.fn.termopen(config.ui.command, {
+    on_exit = function()
+      terminal_state.job_id = nil
+    end,
+  })
+
+  terminal_state.bufnr = bufnr
+  terminal_state.winid = winid
+  terminal_state.job_id = job_id
+
+  return bufnr, job_id
+end
+
+local function send_to_terminal(text)
+  local _, job_id = ensure_terminal()
+  if not job_id or job_id <= 0 then
+    notify_err("Failed to start Codex CLI terminal")
+    return false
+  end
+
+  vim.fn.chansend(job_id, text .. "\n")
   return true
 end
 
@@ -74,14 +183,12 @@ local function find_codex_pane()
 
   local current_pane = vim.fn.system("tmux display-message -p '#{pane_id}'")
   if vim.v.shell_error ~= 0 then
-    notify_err("Failed to get current tmux pane")
     return nil
   end
   current_pane = vim.trim(current_pane)
 
   local result = vim.fn.system("tmux list-panes -s -F '#{pane_id}:#{pane_pid}'")
   if vim.v.shell_error ~= 0 then
-    notify_err("Failed to list tmux panes")
     return nil
   end
 
@@ -94,7 +201,6 @@ local function find_codex_pane()
     end
   end
 
-  notify_err("No codex pane found in current tmux session")
   return nil
 end
 
@@ -148,29 +254,26 @@ local function ask_with_prompt(prefix)
       return
     end
 
-    local pane_id = find_codex_pane()
-    if not pane_id then
+    local text = prefix and (prefix .. "\n" .. input) or input
+    local pane_id = nil
+    if tmux_available() then
+      pane_id = find_codex_pane()
+    end
+
+    if pane_id then
+      send_to_pane(pane_id, text)
       return
     end
 
-    local text = prefix and (prefix .. "\n" .. input) or input
-    send_to_pane(pane_id, text)
+    send_to_terminal(text)
   end)
 end
 
 local function ask_basic()
-  if not tmux_available() then
-    return
-  end
-
   ask_with_prompt(format_context_cursor())
 end
 
 local function ask_visual()
-  if not tmux_available() then
-    return
-  end
-
   local start_pos = vim.fn.getpos("'<")
   local end_pos = vim.fn.getpos("'>")
   if start_pos[2] == 0 or end_pos[2] == 0 then

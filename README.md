@@ -1,16 +1,17 @@
 # codex-cli.nvim
 
-Lightweight Neovim integration for Codex CLI via tmux `send-keys`.
+Lightweight Neovim integration for Codex CLI via tmux `send-keys` or an embedded terminal UI.
 
 - Prompt from Neovim, send to a running Codex CLI pane
+- If no Codex CLI pane is found, open a local UI (popup or split)
 - Visual selection adds file/line context
 - Auto-reload buffers when Codex edits files
 
 ## Requirements
 
 - Neovim >= 0.8
-- `tmux` (Neovim must run inside a tmux session)
-- Codex CLI running in a tmux pane
+- Codex CLI available in PATH
+- `tmux` (optional, for sending to an existing tmux pane)
 
 ## Installation (lazy.nvim)
 
@@ -45,6 +46,19 @@ require("codex_cli").setup({
   tmux = {
     command = "codex", -- match process name for pane detection
   },
+  ui = {
+    mode = "popup", -- "popup" or "split"
+    command = "codex", -- command used to launch Codex CLI
+    split = {
+      direction = "right", -- "right" or "below"
+      size = 0.4,
+    },
+    popup = {
+      width = 0.8,
+      height = 0.8,
+      border = "rounded",
+    },
+  },
   keymaps = {
     enabled = true,
     ask = "<leader>aa",
@@ -59,6 +73,7 @@ require("codex_cli").setup({
 
 - Pane detection searches the current tmux session and looks for a `codex` process
   in the pane's child process tree.
+- If no tmux pane is found, Codex CLI starts in the configured UI mode.
 - Buffers auto-reload on focus/enter/cursor hold via `checktime`.
 
 ## Troubleshooting
