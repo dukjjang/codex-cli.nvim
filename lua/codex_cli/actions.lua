@@ -51,15 +51,42 @@ function M.ask_basic()
   ask_with_prompt(format_context_cursor())
 end
 
-function M.ask_visual()
-  local start_pos = vim.fn.getpos("'<")
-  local end_pos = vim.fn.getpos("'>")
-  if start_pos[2] == 0 or end_pos[2] == 0 then
-    util.notify_err("No visual selection detected")
-    return
+local function resolve_visual_range()
+  local mode = vim.fn.mode()
+  local start_pos
+  local end_pos
+
+  if mode:find("[vV]") then
+    start_pos = vim.fn.getpos("v")
+    end_pos = vim.fn.getpos(".")
+  else
+    start_pos = vim.fn.getpos("'<")
+    end_pos = vim.fn.getpos("'>")
   end
+
+  if start_pos[2] == 0 or end_pos[2] == 0 then
+    return nil, nil
+  end
+
   local start_line = math.min(start_pos[2], end_pos[2])
   local end_line = math.max(start_pos[2], end_pos[2])
+  return start_line, end_line
+end
+
+function M.ask_visual()
+  local start_line, end_line = resolve_visual_range()
+  if not start_line or not end_line then
+    vim.defer_fn(function()
+      local deferred_start, deferred_end = resolve_visual_range()
+      if not deferred_start or not deferred_end then
+        util.notify_err("No visual selection detected")
+        return
+      end
+      local prefix = format_context_line(deferred_start, deferred_end)
+      ask_with_prompt(prefix)
+    end, 0)
+    return
+  end
 
   local prefix = format_context_line(start_line, end_line)
   ask_with_prompt(prefix)
