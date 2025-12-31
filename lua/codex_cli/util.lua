@@ -4,6 +4,20 @@ function M.notify_err(message)
   vim.notify(message, vim.log.levels.ERROR, { title = "codex-cli.nvim" })
 end
 
+function M.notify_warn(message)
+  vim.notify(message, vim.log.levels.WARN, { title = "codex-cli.nvim" })
+end
+
+local warn_once_cache = {}
+
+function M.notify_warn_once(message)
+  if warn_once_cache[message] then
+    return
+  end
+  warn_once_cache[message] = true
+  M.notify_warn(message)
+end
+
 function M.normalize_ratio(value)
   if type(value) ~= "number" then
     return 0.5

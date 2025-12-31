@@ -17,8 +17,7 @@ Lightweight Neovim integration for Codex CLI via tmux `send-keys` or an embedded
 
 ```lua
 {
-  dir = "/Users/tedd/projects/codex-cli.nvim",
-  name = "codex-cli.nvim",
+  "dukjjang/codex-cli.nvim",
   config = function()
     require("codex_cli").setup()
   end,
@@ -70,6 +69,7 @@ require("codex_cli").setup({
   in the pane's child process tree.
 - If no tmux pane is found, Codex CLI starts in a terminal split.
 - Buffers auto-reload on focus/enter/cursor hold via `checktime`.
+- Invalid configuration values fall back to defaults and emit a warning once.
 
 ## Troubleshooting
 

@@ -117,7 +117,11 @@ function M.toggle_terminal()
   end
 
   -- 터미널이 없으면 새로 생성
-  ensure_terminal()
+  local _, job_id = ensure_terminal()
+  if not job_id or job_id <= 0 then
+    util.notify_err("Failed to start Codex CLI terminal")
+    return
+  end
   vim.cmd("startinsert")
 end
 

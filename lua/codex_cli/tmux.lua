@@ -53,6 +53,9 @@ end
 
 function M.find_codex_pane()
   local match_cmd = config.get().tmux.command
+  if match_cmd == "" then
+    return nil
+  end
 
   local current_pane = vim.fn.system("tmux display-message -p '#{pane_id}'")
   if vim.v.shell_error ~= 0 then
