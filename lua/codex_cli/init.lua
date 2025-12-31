@@ -3,7 +3,6 @@ local M = {}
 local default_config = {
   tmux = {
     command = "codex",
-    capture_lines = 80,
   },
   keymaps = {
     enabled = true,
