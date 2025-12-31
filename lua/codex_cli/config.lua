@@ -2,6 +2,7 @@ local util = require("codex_cli.util")
 
 local M = {}
 
+-- Defaults are normalized by normalize_opts().
 local default_config = {
   tmux = {
     command = "codex",
