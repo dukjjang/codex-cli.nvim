@@ -40,12 +40,12 @@ local function ensure_window(bufnr)
   return terminal_state.winid
 end
 
-local function ensure_terminal()
+local function ensure_terminal(focus)
   -- 기존 터미널이 있고 실행 중이면 재사용
   if terminal_state.bufnr and vim.api.nvim_buf_is_valid(terminal_state.bufnr) then
     if terminal_state.job_id and util.is_job_running(terminal_state.job_id) then
       local winid = ensure_window(terminal_state.bufnr)
-      if winid and vim.api.nvim_win_is_valid(winid) then
+      if focus and winid and vim.api.nvim_win_is_valid(winid) then
         vim.api.nvim_set_current_win(winid)
       end
       return terminal_state.bufnr, terminal_state.job_id, false -- false = 새로 생성 안함
@@ -53,10 +53,12 @@ local function ensure_terminal()
   end
 
   -- 새 터미널 생성
+  local prev_win = vim.api.nvim_get_current_win()
   local bufnr = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_option(bufnr, "bufhidden", "hide")
   local winid = ensure_window(bufnr)
 
+  -- termopen은 현재 창에서 실행해야 함
   if winid and vim.api.nvim_win_is_valid(winid) then
     vim.api.nvim_set_current_win(winid)
   end
@@ -71,25 +73,33 @@ local function ensure_terminal()
   terminal_state.winid = winid
   terminal_state.job_id = job_id
 
+  -- 포커스 유지 옵션이면 원래 창으로 복귀
+  if not focus and vim.api.nvim_win_is_valid(prev_win) then
+    vim.api.nvim_set_current_win(prev_win)
+  end
+
   return bufnr, job_id, true -- true = 새로 생성됨
 end
 
 function M.send_to_terminal(text)
-  local _, job_id, is_new = ensure_terminal()
+  local prev_win = vim.api.nvim_get_current_win()
+  local _, job_id, is_new = ensure_terminal(false)
   if not job_id or job_id <= 0 then
     util.notify_err("Failed to start Codex CLI terminal")
     return false
   end
 
-  -- 새로 터미널을 열었으면 codex 초기화 대기
+  -- Wait for Codex initialization when opening a new terminal
   local delay = is_new and 1000 or 0
 
   vim.defer_fn(function()
     vim.fn.chansend(job_id, text)
     vim.defer_fn(function()
       vim.fn.chansend(job_id, "\r")
-      -- 터미널 모드로 진입
-      vim.cmd("startinsert")
+      -- Keep focus on the original window
+      if vim.api.nvim_win_is_valid(prev_win) then
+        vim.api.nvim_set_current_win(prev_win)
+      end
     end, 50)
   end, delay)
 
@@ -97,14 +107,14 @@ function M.send_to_terminal(text)
 end
 
 function M.toggle_terminal()
-  -- 창이 열려있으면 닫기
+  -- Close the window if it is open
   if terminal_state.winid and vim.api.nvim_win_is_valid(terminal_state.winid) then
     vim.api.nvim_win_close(terminal_state.winid, false)
     terminal_state.winid = nil
     return
   end
 
-  -- 기존 터미널 버퍼가 있고 job이 실행 중이면 창만 다시 열기
+  -- Reopen the window if the existing terminal buffer is running
   if terminal_state.bufnr and vim.api.nvim_buf_is_valid(terminal_state.bufnr) then
     if terminal_state.job_id and util.is_job_running(terminal_state.job_id) then
       local winid = ensure_window(terminal_state.bufnr)
@@ -116,8 +126,8 @@ function M.toggle_terminal()
     end
   end
 
-  -- 터미널이 없으면 새로 생성
-  local _, job_id = ensure_terminal()
+  -- Create a new terminal if none exists
+  local _, job_id = ensure_terminal(true)
   if not job_id or job_id <= 0 then
     util.notify_err("Failed to start Codex CLI terminal")
     return
@@ -137,7 +147,7 @@ function M.setup_autoinsert()
   vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter" }, {
     group = group,
     callback = function()
-      -- codex 터미널 버퍼인지 확인
+      -- Check if this is the Codex terminal buffer
       if should_autoinsert_terminal() then
         vim.cmd("startinsert")
       end
