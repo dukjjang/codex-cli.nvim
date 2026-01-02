@@ -29,9 +29,10 @@ Lightweight Neovim integration for Codex CLI via tmux `send-keys` or an embedded
 - Normal mode: `<leader>aa` opens a prompt and sends:
   - `Context: <current-file>`
   - your prompt on the next line
-- Visual mode: `<leader>av` opens a prompt and sends:
+- Visual mode: `<leader>aa` does the same but includes the selected range:
   - `Context: <current-file> lines <start>-<end>`
   - your prompt on the next line
+- Optional: set `keymaps.visual` to a different key if you want a separate visual-only mapping.
 
 Commands:
 
@@ -54,7 +55,7 @@ require("codex_cli").setup({
   keymaps = {
     enabled = true,
     ask = "<leader>aa",
-    visual = "<leader>av",
+    visual = "<leader>aa",
     toggle = "<leader>at",
   },
   command = "CodexSend",

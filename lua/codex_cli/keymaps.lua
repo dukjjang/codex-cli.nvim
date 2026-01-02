@@ -14,8 +14,9 @@ local function register_which_key()
   which_key.add({ { "<leader>a", group = "Codex" } })
   if cfg.keymaps.ask and cfg.keymaps.ask ~= "" then
     which_key.add({ mode = "n", { cfg.keymaps.ask, desc = "Codex Ask" } })
+    which_key.add({ mode = "v", { cfg.keymaps.ask, desc = "Codex Ask" } })
   end
-  if cfg.keymaps.visual and cfg.keymaps.visual ~= "" then
+  if cfg.keymaps.visual and cfg.keymaps.visual ~= "" and cfg.keymaps.visual ~= cfg.keymaps.ask then
     which_key.add({ mode = "v", { cfg.keymaps.visual, desc = "Codex Ask (visual)" } })
   end
   if cfg.keymaps.toggle and cfg.keymaps.toggle ~= "" then
@@ -32,11 +33,10 @@ function M.setup()
   end
 
   if cfg.keymaps.ask and cfg.keymaps.ask ~= "" then
-    vim.keymap.set("n", cfg.keymaps.ask, actions.ask_basic, { desc = "Codex Ask", silent = true })
+    vim.keymap.set({ "n", "v" }, cfg.keymaps.ask, actions.ask, { desc = "Codex Ask", silent = true })
   end
-
-  if cfg.keymaps.visual and cfg.keymaps.visual ~= "" then
-    vim.keymap.set("v", cfg.keymaps.visual, actions.ask_visual, { desc = "Codex Ask (visual)", silent = true })
+  if cfg.keymaps.visual and cfg.keymaps.visual ~= "" and cfg.keymaps.visual ~= cfg.keymaps.ask then
+    vim.keymap.set("v", cfg.keymaps.visual, actions.ask, { desc = "Codex Ask (visual)", silent = true })
   end
 
   if cfg.keymaps.toggle and cfg.keymaps.toggle ~= "" then

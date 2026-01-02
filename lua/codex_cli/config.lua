@@ -15,7 +15,7 @@ local default_config = {
   keymaps = {
     enabled = true,
     ask = "<leader>aa",
-    visual = "<leader>av",
+    visual = "<leader>aa",
     toggle = "<leader>at",
   },
   command = "CodexSend",
