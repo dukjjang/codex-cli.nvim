@@ -2,15 +2,21 @@ local util = require("codex_cli.util")
 
 local M = {}
 
--- Defaults are normalized by normalize_opts().
 local default_config = {
   tmux = {
     command = "codex",
   },
   split = {
     command = "codex",
-    direction = "right", -- "right" or "below"
-    size = 0.4, -- width/height ratio
+    direction = "right",
+    size = 0.4,
+  },
+  overlay = {
+    enabled = true,
+    poll_interval = 150,
+    capture_lines = 4000,
+    backdrop_blend = 70,
+    input_height = 3,
   },
   keymaps = {
     enabled = true,
@@ -85,6 +91,10 @@ local function ensure_number(value, default, name)
   return default
 end
 
+local function clamp_number(value, min_value, max_value)
+  return math.max(min_value, math.min(max_value, value))
+end
+
 local function normalize_opts(opts)
   if opts == nil then
     return {}
@@ -106,6 +116,31 @@ local function normalize_opts(opts)
     command = ensure_string(split_opts.command, default_config.split.command, "split.command"),
     direction = ensure_direction(split_opts.direction, default_config.split.direction, "split.direction"),
     size = ensure_number(split_opts.size, default_config.split.size, "split.size"),
+  }
+
+  local overlay_opts = ensure_table(opts.overlay, "overlay")
+  clean.overlay = {
+    enabled = ensure_bool(overlay_opts.enabled, default_config.overlay.enabled, "overlay.enabled"),
+    poll_interval = clamp_number(
+      ensure_number(overlay_opts.poll_interval, default_config.overlay.poll_interval, "overlay.poll_interval"),
+      50,
+      2000
+    ),
+    capture_lines = clamp_number(
+      ensure_number(overlay_opts.capture_lines, default_config.overlay.capture_lines, "overlay.capture_lines"),
+      200,
+      20000
+    ),
+    backdrop_blend = clamp_number(
+      ensure_number(overlay_opts.backdrop_blend, default_config.overlay.backdrop_blend, "overlay.backdrop_blend"),
+      0,
+      95
+    ),
+    input_height = clamp_number(
+      ensure_number(overlay_opts.input_height, default_config.overlay.input_height, "overlay.input_height"),
+      1,
+      8
+    ),
   }
 
   local keymaps_opts = opts.keymaps

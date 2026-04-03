@@ -102,4 +102,80 @@ function M.send_to_pane(pane_id, text)
   return true
 end
 
+local function build_capture_args(pane_id, line_count)
+  return {
+    "tmux",
+    "capture-pane",
+    "-p",
+    "-J",
+    "-S",
+    tostring(-math.max(1, line_count or config.get().overlay.capture_lines)),
+    "-t",
+    pane_id,
+  }
+end
+
+function M.capture_pane(pane_id, line_count)
+  local args = build_capture_args(pane_id, line_count)
+
+  if vim.system then
+    local result = vim.system(args, { text = true }):wait()
+    if result.code ~= 0 then
+      return nil
+    end
+    return result.stdout or ""
+  end
+
+  local joined = table.concat(vim.tbl_map(vim.fn.shellescape, args), " ")
+  local output = vim.fn.system(joined)
+  if vim.v.shell_error ~= 0 then
+    return nil
+  end
+  return output
+end
+
+function M.capture_pane_async(pane_id, line_count, callback)
+  local args = build_capture_args(pane_id, line_count)
+
+  if vim.system then
+    vim.system(args, { text = true }, function(result)
+      vim.schedule(function()
+        if result.code ~= 0 then
+          callback(nil, result.stderr or "tmux capture-pane failed")
+          return
+        end
+        callback(result.stdout or "", nil)
+      end)
+    end)
+    return
+  end
+
+  local stdout = {}
+  local stderr = {}
+
+  vim.fn.jobstart(args, {
+    stdout_buffered = true,
+    stderr_buffered = true,
+    on_stdout = function(_, data)
+      if data then
+        stdout = data
+      end
+    end,
+    on_stderr = function(_, data)
+      if data then
+        stderr = data
+      end
+    end,
+    on_exit = function(_, code)
+      vim.schedule(function()
+        if code ~= 0 then
+          callback(nil, table.concat(stderr, "\n"))
+          return
+        end
+        callback(table.concat(stdout, "\n"), nil)
+      end)
+    end,
+  })
+end
+
 return M
