@@ -1,0 +1,23 @@
+name: Tests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  neovim:
+    strategy:
+      matrix:
+        version: [v0.11.4, v0.12.5]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Neovim
+        env:
+          NVIM_VERSION: ${{ matrix.version }}
+        run: |
+          curl --fail --location --retry 3 "https://github.com/neovim/neovim/releases/download/${NVIM_VERSION}/nvim-linux-x86_64.tar.gz" -o /tmp/nvim.tar.gz
+          tar -xzf /tmp/nvim.tar.gz -C /tmp
+          echo /tmp/nvim-linux-x86_64/bin >> "$GITHUB_PATH"
+      - name: Test without personal configuration or model calls
+        run: bash tests/run.sh

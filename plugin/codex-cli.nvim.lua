@@ -1,1 +1,1 @@
-require("codex_cli").setup()
+-- Configure explicitly through require("codex_cli").setup(opts).
