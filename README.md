@@ -1,7 +1,7 @@
 # codex-cli.nvim
 
 직접 코딩하다 막히면, Neovim 안에서 Codex에게 질문하세요.
-얇은 테두리와 중성 색상의 반투명 대화창에 답변이 스트리밍되고, 창을 닫고 코딩한 뒤 같은 대화를 이어갈 수 있습니다.
+둥근 테두리와 선명한 본문, 은은한 민트 포인트의 대화창에 답변이 스트리밍되고, 창을 닫고 코딩한 뒤 같은 대화를 이어갈 수 있습니다.
 
 ## 설치
 
@@ -49,10 +49,10 @@ require("codex_cli").setup()
 require("codex_cli").setup({
   chat = {
     command = { "codex", "app-server" }, -- PATH 밖에 있으면 실행 파일의 절대 경로 사용
-    border = "single",  -- "rounded", "double", "none"도 사용 가능
-    blend = 10,         -- 답변창 투명도 (0 = 불투명)
-    input_blend = 6,     -- 입력창은 조금 더 선명하게
-    backdrop_blend = 24, -- 뒤쪽 코드가 비치는 정도
+    border = "rounded",  -- "single", "double", "none"도 사용 가능
+    blend = 0,         -- 답변창 투명도 (0 = 불투명)
+    input_blend = 0,     -- 선명한 입력창
+    backdrop_blend = 78, -- 뒤쪽 코드가 비치는 정도
     width = 0.76,        -- 화면 너비 비율, 최대 110열
     history = true,      -- 프로젝트별 최근 대화 복원
   },

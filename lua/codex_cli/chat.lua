@@ -3,12 +3,12 @@ local api = vim.api
 local sessions, ui = {}, {}
 local opts = {
 	command = { "codex", "app-server" },
-	blend = 10,
-	input_blend = 6,
-	backdrop_blend = 24,
+	blend = 0,
+	input_blend = 0,
+	backdrop_blend = 78,
 	width = 0.76,
 	history = true,
-	border = "single",
+	border = "rounded",
 }
 local ns = api.nvim_create_namespace("codex_chat")
 local render_pending = false
@@ -68,15 +68,27 @@ local function restore(s)
 	end
 end
 local function highlights()
-	-- Neutral glass surfaces stay neutral even with a blue/purple colorscheme.
-	api.nvim_set_hl(0, "CodexGlass", { fg = "#e8e8e4", bg = "#1e1e1c" })
-	api.nvim_set_hl(0, "CodexBorder", { fg = "#41413d", bg = "#1e1e1c" })
-	api.nvim_set_hl(0, "CodexInputBorder", { fg = "#41413d", bg = "#191918" })
-	api.nvim_set_hl(0, "CodexInput", { fg = "#f0f0ec", bg = "#191918" })
-	api.nvim_set_hl(0, "CodexAccent", { fg = "#d4d4ce", bold = true })
-	api.nvim_set_hl(0, "CodexLabel", { fg = "#a5a5a0", bg = "#1e1e1c" })
-	api.nvim_set_hl(0, "CodexInputLabel", { fg = "#a5a5a0", bg = "#191918" })
-	api.nvim_set_hl(0, "CodexDim", { bg = "#000000" })
+	-- Opaque reading surfaces preserve contrast over transparent editor themes.
+	local light = vim.o.background == "light"
+	local p = light and {
+		text = "#27364b", surface = "#f5f7fb", input = "#ffffff", border = "#b8c5d6",
+		accent = "#176c68", muted = "#596b83", code = "#e8eef6", user = "#465ea0",
+	} or {
+		text = "#e4eaf4", surface = "#202838", input = "#273246", border = "#465773",
+		accent = "#9cdbc9", muted = "#a4b3ca", code = "#29364b", user = "#b4c8ff",
+	}
+	api.nvim_set_hl(0, "CodexGlass", { fg = p.text, bg = p.surface })
+	api.nvim_set_hl(0, "CodexBorder", { fg = p.border, bg = p.surface })
+	api.nvim_set_hl(0, "CodexInputBorder", { fg = p.accent, bg = p.input })
+	api.nvim_set_hl(0, "CodexInput", { fg = p.text, bg = p.input })
+	api.nvim_set_hl(0, "CodexAccent", { fg = p.accent, bold = true })
+	api.nvim_set_hl(0, "CodexUser", { fg = p.user, bold = true })
+	api.nvim_set_hl(0, "CodexMuted", { fg = p.muted })
+	api.nvim_set_hl(0, "CodexCode", { bg = p.code })
+	api.nvim_set_hl(0, "CodexInlineCode", { fg = p.accent, bg = p.code })
+	api.nvim_set_hl(0, "CodexLabel", { fg = p.muted, bg = p.surface })
+	api.nvim_set_hl(0, "CodexInputLabel", { fg = p.accent, bg = p.input, bold = true })
+	api.nvim_set_hl(0, "CodexDim", { bg = "#101722" })
 end
 local function stop_animation()
 	if ui.animation then
@@ -147,7 +159,7 @@ local function update_loading()
 			virt_text_pos = "overlay",
 			virt_text = {
 				{ "  " .. frame .. "  " .. label, "CodexAccent" },
-				{ "  · " .. duration .. "  · Ctrl-C 중단", "Comment" },
+				{ "  · " .. duration .. "  · Ctrl-C 중단", "CodexMuted" },
 			},
 		})
 	end
@@ -177,35 +189,50 @@ function M.render()
 			return
 		end
 		local at_bottom = api.nvim_win_get_cursor(ui.output_win)[1] >= api.nvim_buf_line_count(ui.output_buf) - 2
-		local content, headings = {}, {}
+		local content, headings, code_rows = {}, {}, {}
 		if #s.messages == 0 then
 			content = {
 				"",
-				"  막힌 부분부터, 한 가지씩.",
+				"CODEX  /  함께 생각하는 공간",
 				"",
-				"  직접 코딩하다가 궁금한 것을 물어보세요.",
-				"  현재 코드와 선택 영역이 질문에 함께 전달됩니다.",
+				"어디서 막혔나요?",
+				"코드를 읽고, 질문하고, 이어서 만들어보세요.",
+				"현재 파일이나 선택한 코드가 함께 전달됩니다.",
 				"",
-				"  질문  · 설명과 힌트",
-				"  적용  · 요청한 코드를 프로젝트에 반영",
+				"질문   코드 설명 · 아이디어 · 디버깅 힌트",
+				"적용   요청한 변경을 프로젝트에 반영",
 				"",
-				"  Ctrl-K 답변 읽기   Ctrl-J 입력   Ctrl-G 모드 전환",
-				"  Esc 코딩으로 돌아가기   Ctrl-C 응답 중단",
+				"Ctrl-G 모드 전환   ·   Esc 코드로 돌아가기",
 			}
+			headings = { { row = 1, group = "CodexAccent" }, { row = 3, group = "CodexUser" } }
 		else
 			for _, msg in ipairs(s.messages) do
 				table.insert(content, "")
-				table.insert(headings, #content)
-				table.insert(content, "  " .. msg.role)
+				table.insert(headings, { row = #content, group = msg.role == "Codex" and "CodexAccent" or "CodexUser" })
+				table.insert(content, msg.role == "Codex" and "●  Codex" or "○  " .. msg.role)
 				table.insert(content, "")
-				vim.list_extend(content, lines(msg.text))
+				local fence
+				for _, line in ipairs(lines(msg.text)) do
+					local marker = line:match("^%s*(```+)") or line:match("^%s*(~~~+)")
+					if fence or marker then
+						table.insert(code_rows, #content)
+					end
+					if marker then
+						if not fence then
+							fence = marker
+						elseif marker:sub(1, 1) == fence:sub(1, 1) and #marker >= #fence then
+							fence = nil
+						end
+					end
+					table.insert(content, line)
+				end
 			end
 			table.insert(content, "")
 		end
 		ui.loading_row = nil
 		if s.busy and not s.received then
 			table.insert(content, "  Codex")
-			table.insert(headings, #content - 1)
+			table.insert(headings, { row = #content - 1, group = "CodexAccent" })
 			table.insert(content, "")
 			ui.loading_row = #content
 			table.insert(content, "")
@@ -214,8 +241,13 @@ function M.render()
 		api.nvim_buf_clear_namespace(ui.output_buf, loading_ns, 0, -1)
 		put(ui.output_buf, content)
 		api.nvim_buf_clear_namespace(ui.output_buf, ns, 0, -1)
-		for _, row in ipairs(headings) do
-			api.nvim_buf_add_highlight(ui.output_buf, ns, "CodexAccent", row, 0, -1)
+		for _, heading in ipairs(headings) do
+			api.nvim_buf_add_highlight(ui.output_buf, ns, heading.group, heading.row, 0, -1)
+		end
+		for _, row in ipairs(code_rows) do
+			api.nvim_buf_set_extmark(ui.output_buf, ns, row, 0, {
+				line_hl_group = "CodexCode", priority = 90,
+			})
 		end
 		if at_bottom or s.scroll then
 			api.nvim_win_set_cursor(ui.output_win, { #content, 0 })
@@ -671,7 +703,7 @@ function M.open(first, last)
 		style = "minimal",
 		border = opts.border == "none" and { " ", " ", " ", " ", " ", " ", " ", " " } or opts.border,
 		title = " 질문 ",
-		footer = " Enter 전송 · C-k 답변 · C-j 입력 · C-g 모드 · Esc 닫기 ",
+		footer = " Enter 전송  ·  Ctrl-K 답변  ·  Esc 닫기 ",
 		zindex = 51,
 	})
 	vim.wo[ui.backdrop_win].winblend = 100
@@ -690,6 +722,16 @@ function M.open(first, last)
 			.. label
 			.. ",FloatFooter:"
 			.. label
+			.. ",FoldColumn:" .. surface
+			.. ",EndOfBuffer:" .. surface
+			.. ",NonText:CodexMuted,markdownCode:CodexInlineCode,markdownCodeDelimiter:CodexMuted"
+		-- A blank fold gutter adds padding without changing copied message text.
+		vim.wo[win].foldcolumn = "2"
+		vim.wo[win].foldenable = false
+		vim.wo[win].signcolumn = "no"
+		vim.wo[win].list = false
+		vim.wo[win].breakindent = true
+		vim.wo[win].showbreak = "  "
 		vim.wo[win].wrap, vim.wo[win].linebreak = true, true
 		vim.wo[win].conceallevel = 2
 	end
