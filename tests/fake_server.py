@@ -14,9 +14,20 @@ for raw in sys.stdin:
     method, params = msg.get('method'), msg.get('params', {})
     if method == 'initialize':
         emit({'id': msg['id'], 'result': {}})
+    elif method == 'model/list':
+        second = params.get('cursor') == 'second'
+        model = 'test-beta' if second else 'test-alpha'
+        emit({'id': msg['id'], 'result': {'data': [{
+            'id': model, 'model': model, 'displayName': model, 'hidden': False,
+            'isDefault': not second, 'defaultReasoningEffort': 'low',
+            'supportedReasoningEfforts': [
+                {'reasoningEffort': 'low', 'description': 'Quick answers'},
+                {'reasoningEffort': 'high', 'description': 'Deeper reasoning'},
+            ],
+        }], 'nextCursor': None if second else 'second'}})
     elif method in ('thread/start', 'thread/resume'):
         assert params['sandbox'] == 'read-only'
-        emit({'id': msg['id'], 'result': {'thread': {'id': 'test-thread'}}})
+        emit({'id': msg['id'], 'result': {'thread': {'id': 'test-thread'}, 'model': 'test-alpha', 'reasoningEffort': 'low'}})
     elif method == 'turn/start':
         text = params['input'][0]['text']
         is_apply = 'Mode: 적용.' in text
@@ -25,7 +36,8 @@ for raw in sys.stdin:
         emit({'method': 'turn/started', 'params': {'threadId': 'test-thread', 'turn': {'id': 'test-turn'}}})
         if 'HOLD' in text:
             continue
-        for delta in ['안녕', '하세요.\n', '```lua\nprint("hello")\n```']:
+        response = [params.get('model', 'default') + ' / ' + str(params.get('effort', 'default'))] if 'MODEL_CHECK' in text else ['안녕', '하세요.\n', '```lua\nprint("hello")\n```']
+        for delta in response:
             emit({'method': 'item/agentMessage/delta', 'params': {'threadId': 'test-thread', 'itemId': str(msg['id']), 'delta': delta}})
             if 'STREAM' in text:
                 time.sleep(.2)

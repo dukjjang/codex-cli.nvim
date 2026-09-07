@@ -84,6 +84,7 @@ Codex가 별도 승인을 요구하면 Neovim의 선택 UI로 확인합니다.
 | `<leader>at` | 대화창 열기/닫기 |
 | `<leader>an` | 새 대화 |
 | `<leader>ad` | 마지막 변경 내역 |
+| `/model` + `Enter` | 모델과 추론 강도 선택 |
 | `Enter` / `Ctrl-S` | 입력창에서 전송 |
 | `Alt-Enter` | 입력창에서 줄바꿈 |
 | `Ctrl-O` | 입력창에서 Normal 모드로 전환하여 여러 줄 편집 |
@@ -96,10 +97,19 @@ Codex가 별도 승인을 요구하면 Neovim의 선택 UI로 확인합니다.
 | `gd` | 대화창 Normal 모드에서 diff 보기 |
 
 `:CodexAsk 질문`, `:'<,'>CodexAsk 질문`, `:CodexToggle`, `:CodexNew`,
-`:CodexMode`, `:CodexStop`, `:CodexDiff` 명령을 사용할 수 있습니다.
+`:CodexMode`, `:CodexModel`, `:CodexStop`, `:CodexDiff` 명령을 사용할 수 있습니다.
 `:CodexSend`는 `:CodexAsk`의 별칭입니다. `:CodexTerminal`은 기존 터미널을 엽니다.
 키 설정은 `keymaps = { ask = "...", visual = "...", toggle = "..." }`,
 전체 비활성화는 `keymaps = false`로 설정합니다.
+
+## 모델 선택
+
+Codex CLI처럼 입력창에 `/model`을 입력하고 `Enter`를 누르면 모델과 추론 강도를 순서대로 선택합니다.
+`:CodexModel`로도 열 수 있습니다. 목록은 설치된 Codex의 `model/list`에서 가져오므로
+해당 모델이 지원하는 추론 강도만 표시됩니다. 선택을 취소하면 기존 설정을 유지합니다.
+입력창 아래에 현재 모델과 추론 강도가 표시되고, 다음 질문부터 적용됩니다.
+선택은 프로젝트별 대화 기록과 함께 저장됩니다 (`history = false`이면 현재 Neovim 실행 중에만 유지).
+모델을 선택하지 않으면 Codex 설정을 따릅니다. 응답 생성 중에는 모델을 바꿀 수 없습니다.
 
 ## 대화와 컨텍스트
 

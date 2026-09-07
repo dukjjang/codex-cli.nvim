@@ -44,7 +44,9 @@ local function save(s)
 	local path = history_path(s.cwd)
 	pcall(function()
 		vim.fn.mkdir(vim.fs.dirname(path), "p", 448)
-		local data = vim.json.encode({ thread = s.thread, messages = s.messages, diff = s.diff })
+		local data = vim.json.encode({
+			thread = s.thread, messages = s.messages, diff = s.diff, model = s.model, effort = s.effort,
+		})
 		vim.fn.writefile({ data }, path .. ".tmp")
 		vim.fn.setfperm(path .. ".tmp", "rw-------")
 		assert((vim.uv or vim.loop).fs_rename(path .. ".tmp", path))
@@ -58,6 +60,8 @@ local function restore(s)
 		return vim.json.decode(table.concat(vim.fn.readfile(history_path(s.cwd)), "\n"))
 	end)
 	if ok and type(data) == "table" and type(data.messages) == "table" then
+		s.model = type(data.model) == "string" and data.model or nil
+		s.effort = type(data.effort) == "string" and data.effort or nil
 		s.thread = type(data.thread) == "string" and data.thread or nil
 		for _, m in ipairs(data.messages) do
 			if type(m) == "table" and type(m.role) == "string" and type(m.text) == "string" then
@@ -130,6 +134,9 @@ end
 local function current()
 	return ui.session
 end
+local function model_label(s)
+	return (s.model or "Codex 기본 모델") .. (type(s.effort) == "string" and " · " .. s.effort or "")
+end
 local function update_loading()
 	local s = current()
 	if not s or not s.busy or not valid(ui.output_win) then
@@ -173,7 +180,7 @@ local function error_message(s, err)
 		s.reload:stop()
 		s.reload = nil
 	end
-	s.busy, s.turn = false, nil
+	s.busy, s.turn, s.model_picker = false, nil, nil
 	table.insert(s.messages, { role = "알림", text = err.message or tostring(err) })
 	status(s, "오류 · 다시 전송할 수 있어요")
 end
@@ -202,7 +209,8 @@ function M.render()
 				"질문   코드 설명 · 아이디어 · 디버깅 힌트",
 				"적용   요청한 변경을 프로젝트에 반영",
 				"",
-				"Ctrl-G 모드 전환   ·   Esc 코드로 돌아가기",
+				"/model 모델 선택   ·   Ctrl-G 질문/적용 전환",
+				"Enter 전송   ·   Ctrl-K 답변 읽기   ·   Esc 닫기",
 			}
 			headings = { { row = 1, group = "CodexAccent" }, { row = 3, group = "CodexUser" } }
 		else
@@ -271,7 +279,10 @@ function M.render()
 		local ctx = s.context and s.context.label or "컨텍스트 없음"
 		api.nvim_win_set_config(
 			ui.input_win,
-			{ title = " " .. (s.mode == "ask" and "질문" or "적용") .. " · " .. ctx .. " " }
+			{
+				title = " " .. (s.mode == "ask" and "질문" or "적용") .. " · " .. ctx .. " ",
+				footer = " " .. model_label(s) .. " · /model 변경 ",
+			}
 		)
 	end, 25)
 end
@@ -393,6 +404,10 @@ local function connect(s, callback)
 			event(s, msg, rpc)
 		end, function(code, err)
 			s.attached = false
+			if s.model_picker then
+				s.model_picker = nil
+				notify("모델 목록을 불러오지 못했습니다. 다시 시도해주세요.")
+			end
 			if s.busy then
 				error_message(s, { message = "Codex 연결 종료: " .. (err ~= "" and err or tostring(code)) })
 			end
@@ -421,7 +436,52 @@ local function connect(s, callback)
 				return
 			end
 			s.thread, s.attached = result.thread.id, true
+			if not s.model then
+				s.model = result.model
+				s.effort = type(result.reasoningEffort) == "string" and result.reasoningEffort or nil
+			end
 			callback()
+		end)
+	end)
+end
+function M.model()
+	if not valid(ui.output_win) then
+		M.open()
+	end
+	local s = current()
+	if not s or not valid(ui.output_win) then
+		return
+	end
+	if s.busy then
+		notify("응답이 끝난 뒤 모델을 바꿀 수 있어요.")
+		return
+	end
+	if s.model_picker then
+		return
+	end
+	local picker = {}
+	s.model_picker = picker
+	local function active()
+		return s.model_picker == picker and current() == s and valid(ui.output_win)
+	end
+	connect(s, function()
+		if not active() then
+			return
+		end
+		require("codex_cli.models").select(s.rpc, s.model, active, function(model, effort, err)
+			s.model_picker = nil
+			if model then
+				s.model, s.effort = model, effort
+				save(s)
+			elseif err then
+				notify(err)
+			end
+			M.render()
+			vim.schedule(function()
+				if current() == s and valid(ui.input_win) then
+					M.focus_input()
+				end
+			end)
 		end)
 	end)
 end
@@ -465,12 +525,24 @@ function M.send(text)
 	if not s then
 		return
 	end
+	local from_input = text == nil
 	text = text or table.concat(api.nvim_buf_get_lines(s.input_buf, 0, -1, false), "\n")
 	if vim.trim(text) == "" then
 		return
 	end
 	if s.busy then
 		notify("응답 중입니다. Ctrl-C로 중단한 뒤 다시 보내세요.")
+		return
+	end
+	if s.model_picker then
+		notify("모델 선택을 마친 뒤 보내세요.")
+		return
+	end
+	if vim.trim(text) == "/model" then
+		if from_input then
+			api.nvim_buf_set_lines(s.input_buf, 0, -1, false, { "" })
+		end
+		M.model()
 		return
 	end
 	if s.mode == "apply" then
@@ -505,6 +577,8 @@ function M.send(text)
 		status(s, "생각 중")
 		s.rpc:request("turn/start", {
 			threadId = s.thread,
+			model = s.model,
+			effort = s.effort,
 			cwd = s.cwd,
 			approvalPolicy = "on-request",
 			sandboxPolicy = s.mode == "ask" and { type = "readOnly" }
@@ -550,6 +624,7 @@ function M.close()
 	ui.closing = true
 	vim.cmd("stopinsert")
 	if current() then
+		current().model_picker = nil
 		save(current())
 	end
 	for _, key in ipairs({ "input_win", "output_win", "backdrop_win" }) do
@@ -793,6 +868,7 @@ function M.new()
 		notify("응답을 중단한 뒤 새 대화를 시작하세요.")
 		return
 	end
+	s.model_picker = nil
 	s.thread, s.messages, s.diff, s.mode, s.attached = nil, {}, nil, "ask", false
 	save(s)
 	status(s, "새 대화")

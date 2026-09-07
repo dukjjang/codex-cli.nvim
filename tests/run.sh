@@ -13,3 +13,4 @@ nvim --headless -u NONE -i NONE -l tests/editor_spec.lua
 nvim --headless -u NONE -i NONE -l tests/live_reload_spec.lua
 nvim --headless -u NONE -i NONE -l tests/history_spec.lua
 CODEX_TEST_RESTORE=1 nvim --headless -u NONE -i NONE -l tests/history_spec.lua
+nvim --headless -u NONE -i NONE -l tests/model_spec.lua

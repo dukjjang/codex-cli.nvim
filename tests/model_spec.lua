@@ -1,0 +1,65 @@
+-- Exercise /model through the real composer and Neovim's built-in selectors.
+local root = vim.fn.getcwd()
+local child
+local cwd = vim.fn.tempname()
+vim.fn.mkdir(cwd, "p")
+local function lua(code, ...)
+	return vim.rpcrequest(child, "nvim_exec_lua", code, { ... })
+end
+local function input(keys)
+	vim.rpcrequest(child, "nvim_input", keys)
+	vim.wait(150)
+end
+local function check(code)
+	assert(vim.wait(5000, function() return lua(code) end, 20), code .. " mode=" .. lua("return vim.fn.mode()") .. " messages=" .. vim.inspect(lua("return require('codex_cli.chat')._ui.session.messages")))
+end
+local function start()
+	child = vim.fn.jobstart({ vim.v.progpath, "--embed", "--headless", "-u", "NONE", "-i", "NONE" }, { rpc = true })
+	lua([[
+		local root, cwd = ...
+		vim.fn.chdir(cwd)
+		vim.opt.rtp:prepend(root)
+		vim.o.columns, vim.o.lines = 120, 40
+		require('codex_cli').setup({chat={command={'python3',root..'/tests/fake_server.py'}}})
+		require('codex_cli.chat').open()
+	]], root, cwd)
+	check('return vim.fn.mode() == "i"')
+end
+local ok, err = pcall(function()
+	start()
+	input('/model<CR>')
+	check('return vim.fn.mode() == "c"')
+	input('2<CR>')
+	check('return vim.fn.mode() == "c"')
+	input('2<CR>')
+	check('return vim.fn.mode() == "i"')
+	check([[local u=require('codex_cli.chat')._ui; local f=vim.inspect(vim.api.nvim_win_get_config(u.input_win).footer); return f:find('test-beta',1,true) and f:find('high',1,true)]])
+	input('MODEL_CHECK<CR>')
+	check([[local s=require('codex_cli.chat')._ui.session; return not s.busy and #s.messages==2 and s.messages[2].text=='test-beta / high']])
+	-- Cancelling at the effort step must not partially apply a different model.
+	input('/model<CR>')
+	check('return vim.fn.mode() == "c"')
+	input('1<CR>')
+	check('return vim.fn.mode() == "c"')
+	input('<Esc>')
+	check('return vim.fn.mode() == "i"')
+	input('MODEL_CHECK<CR>')
+	check([[local s=require('codex_cli.chat')._ui.session; return not s.busy and #s.messages==4 and s.messages[4].text=='test-beta / high']])
+	-- A restart restores the selection and forwards it on the resumed thread.
+	lua("require('codex_cli.chat').close()")
+	vim.fn.jobstop(child)
+	start()
+	input('MODEL_CHECK<CR>')
+	check([[local s=require('codex_cli.chat')._ui.session; return not s.busy and #s.messages==6 and s.messages[6].text=='test-beta / high']])
+	input('HOLD<CR>')
+	check("return require('codex_cli.chat')._ui.session.turn ~= nil")
+	input('/model<CR>')
+	check([[local s=require('codex_cli.chat')._ui.session; return s.busy and not s.model_picker and s.model=='test-beta']])
+	input('<C-c>')
+	check("return not require('codex_cli.chat')._ui.session.busy")
+end)
+if child then vim.fn.jobstop(child) end
+vim.fn.delete(cwd, "rf")
+assert(ok, err)
+print('PASS: /model keyboard selection, pagination, next-turn model/effort, cancellation, restart/resume, busy guard')
+vim.cmd('qa!')

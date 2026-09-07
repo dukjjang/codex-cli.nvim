@@ -27,6 +27,7 @@ function M.setup(opts)
 		CodexStop = chat.cancel,
 		CodexDiff = chat.diff,
 		CodexMode = chat.mode,
+		CodexModel = chat.model,
 		CodexTerminal = function()
 			require("codex_cli.terminal").toggle_terminal()
 		end,
