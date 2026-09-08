@@ -209,7 +209,7 @@ function M.render()
 				"질문   코드 설명 · 아이디어 · 디버깅 힌트",
 				"적용   요청한 변경을 프로젝트에 반영",
 				"",
-				"/model 모델 선택   ·   Ctrl-G 질문/적용 전환",
+				"/model 모델 선택   ·   Shift-Tab 질문/적용 전환",
 				"Enter 전송   ·   Ctrl-K 답변 읽기   ·   Esc 닫기",
 			}
 			headings = { { row = 1, group = "CodexAccent" }, { row = 3, group = "CodexUser" } }
@@ -823,7 +823,7 @@ function M.open(first, last)
 		-- Override global tmux navigation while the conversation is modal.
 		map({ "n", "i", "x" }, "<C-h>", function() end)
 		map({ "n", "i", "x" }, "<C-l>", function() end)
-		map({ "n", "i" }, "<C-g>", M.mode)
+		map({ "n", "i" }, "<S-Tab>", M.mode)
 		map({ "n", "i" }, "<C-c>", M.cancel)
 		map({ "n", "i", "x" }, "<Esc>", M.dismiss)
 		map("n", "q", M.dismiss)
@@ -832,6 +832,11 @@ function M.open(first, last)
 	vim.keymap.set("i", "<CR>", function()
 		M.send()
 	end, { buffer = ui.input_buf })
+	vim.keymap.set("i", "<S-Tab>", function()
+		if vim.fn.pumvisible() == 1 then return "<C-p>" end
+		vim.schedule(M.mode)
+		return ""
+	end, { buffer = ui.input_buf, expr = true })
 	vim.keymap.set("i", "<M-CR>", "<CR>", { buffer = ui.input_buf })
 	vim.keymap.set("i", "<C-o>", "<C-\\><C-n>", { buffer = ui.input_buf })
 	-- Completion plugins must not replace chat navigation or Enter-to-send.
