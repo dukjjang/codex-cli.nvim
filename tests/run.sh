@@ -20,3 +20,5 @@ nvim --headless -u NONE -i NONE -l tests/skills_spec.lua
 nvim --headless -u NONE -i NONE -l tests/tui_spec.lua
 nvim --headless -u NONE -i NONE -l tests/completion_spec.lua
 nvim --headless -u NONE -i NONE -l tests/prompt_history_spec.lua
+nvim --headless -u NONE -i NONE -l tests/elicitation_spec.lua
+nvim --headless -u NONE -i NONE -l tests/queue_spec.lua

@@ -2,6 +2,7 @@
 import json, os, sys, time
 
 pending_approvals = {}
+pending_elicitations = set()
 
 def emit(value):
     raw = json.dumps(value, ensure_ascii=False) + '\n'
@@ -14,7 +15,13 @@ def emit(value):
 for raw in sys.stdin:
     msg = json.loads(raw)
     method, params = msg.get('method'), msg.get('params', {})
-    if method is None and msg.get('id') in pending_approvals:
+    if method is None and msg.get('id') in pending_elicitations:
+        pending_elicitations.remove(msg['id'])
+        result = msg['result']
+        assert result['action'] in ('accept', 'decline', 'cancel')
+        emit({'method': 'item/agentMessage/delta', 'params': {'threadId': 'test-thread', 'itemId': str(msg['id']), 'delta': json.dumps(result)}})
+        emit({'method': 'turn/completed', 'params': {'threadId': 'test-thread', 'turn': {'id': 'test-turn', 'status': 'completed'}}})
+    elif method is None and msg.get('id') in pending_approvals:
         command = pending_approvals.pop(msg['id'])
         decision = msg['result']['decision']
         assert decision in ('accept', 'decline'), 'approval must not persist for a session'
@@ -58,6 +65,14 @@ for raw in sys.stdin:
                 assert 'writableRoots' not in params['sandboxPolicy']
         emit({'id': msg['id'], 'result': {'turn': {'id': 'test-turn'}}})
         emit({'method': 'turn/started', 'params': {'threadId': 'test-thread', 'turn': {'id': 'test-turn'}}})
+        if 'MCP_CHECK' in text:
+            request_id = 'mcp-' + str(msg['id'])
+            pending_elicitations.add(request_id)
+            schema = {'type': 'object', 'properties': {}}
+            if 'FIELDS' in text:
+                schema = {'type': 'object', 'properties': {'device': {'type': 'string', 'enum': ['simulator', 'phone']}, 'enabled': {'type': 'boolean'}, 'count': {'type': 'integer', 'minimum': 1}}, 'required': ['device', 'enabled', 'count']}
+            emit({'id': request_id, 'method': 'mcpServer/elicitation/request', 'params': {'threadId': 'test-thread', 'turnId': 'test-turn', 'serverName': 'Argent', 'message': 'Allow the Argent MCP server to run tool "list-devices"?' if 'AUTO_APPROVE' in text else 'Allow list_devices?', 'mode': 'form', 'requestedSchema': schema}})
+            continue
         if 'APPROVAL_CHECK' in text:
             command = 'git push origin main' if 'PUSH_CHECK' in text else 'git commit -m test'
             reason = None
@@ -90,7 +105,7 @@ for raw in sys.stdin:
         for delta in response:
             emit({'method': 'item/agentMessage/delta', 'params': {'threadId': 'test-thread', 'itemId': str(os.getpid()) + ':' + str(msg['id']), 'delta': delta}})
             if 'STREAM' in text:
-                time.sleep(.2)
+                time.sleep(1 if "QUEUE_CHECK" in text else .2)
         emit({'method': 'turn/diff/updated', 'params': {'threadId': 'test-thread', 'diff': '--- a/test.lua\n+++ b/test.lua\n@@ -1 +1 @@\n-old\n+new'}})
         emit({'method': 'turn/completed', 'params': {'threadId': 'test-thread', 'turn': {'id': 'test-turn', 'status': 'completed'}}})
     elif method == 'turn/interrupt':

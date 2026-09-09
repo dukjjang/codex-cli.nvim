@@ -11,6 +11,7 @@ local opts = {
 	width = 0.76,
 	history = true,
 	writable_roots = {},
+	mcp_auto_approve = {},
 	border = "rounded",
 }
 local ns = api.nvim_create_namespace("codex_chat")
@@ -240,6 +241,10 @@ function M.render()
 			end
 			table.insert(content, "")
 		end
+		for index, entry in ipairs(s.queue or {}) do
+			table.insert(content, "")
+			table.insert(content, "○ 대기 " .. index .. " · " .. entry.text:gsub("\n", " ↵ "))
+		end
 		ui.loading_row = nil
 		if s.busy then
 			table.insert(content, "  Codex")
@@ -320,6 +325,14 @@ local function event(s, msg, rpc)
 			vim.ui.select({ "거절", "승인" }, { prompt = "Codex 실행 승인: " .. detail }, function(choice)
 				rpc:write({ id = msg.id, result = { decision = choice == "승인" and s.mode == "apply" and s.rpc == rpc and "accept" or "decline" } })
 			end)
+		elseif method == "mcpServer/elicitation/request" then
+			table.insert(s.messages, { role = "MCP 요청", text = tostring(p.serverName) .. " · " .. tostring(p.message) })
+			M.render()
+			require("codex_cli.elicitation").request(p, function()
+				return s.rpc == rpc and rpc.job ~= nil and p.threadId == s.thread and s.busy
+			end, function(result)
+				rpc:write({ id = msg.id, result = result })
+			end, opts.mcp_auto_approve)
 		elseif method == "item/tool/requestUserInput" then
 			local answers, index = {}, 0
 			local function next_question()
@@ -402,6 +415,9 @@ local function event(s, msg, rpc)
 			s.reload = nil
 		end
 		save(s)
+		if p.turn.status == "completed" and (not p.turn.error or p.turn.error == vim.NIL) then
+			vim.schedule(function() M.drain_queue(s) end)
+		end
 		if not valid(ui.output_win) then
 			notify("Codex · " .. s.status)
 		end
@@ -636,8 +652,8 @@ local function capture(first, last)
 			.. table.concat(diagnostics, "\n"),
 	}
 end
-function M.send(text)
-	local s = current()
+function M.send(text, session)
+	local s = session or current()
 	if not s then
 		return
 	end
@@ -687,7 +703,7 @@ function M.send(text)
 	s.busy, s.scroll, s.diff = true, true, nil
 	s.started_at, s.received = (vim.uv or vim.loop).hrtime(), false
 	table.insert(s.messages, { role = "나 · " .. (s.mode == "ask" and "질문" or "적용"), text = text })
-	api.nvim_buf_set_lines(s.input_buf, 0, -1, false, { "" })
+	if not session then api.nvim_buf_set_lines(s.input_buf, 0, -1, false, { "" }) end
 	status(s, "연결 중")
 	local prompt = "Mode: "
 		.. (s.mode == "ask" and "질문. Explain only; do not change files." or "적용. Implement the requested changes.")
@@ -730,6 +746,39 @@ function M.send(text)
 			send({})
 		end
 	end)
+	return true
+end
+function M.drain_queue(s)
+	if not s or s.busy or not s.queue or #s.queue == 0 then return end
+	local entry = s.queue[1]
+	if entry.mode ~= s.mode then notify("큐를 등록한 " .. entry.mode .. " 모드로 돌아간 뒤 Tab으로 재개하세요."); return end
+	local context = s.context
+	s.context = entry.context
+	local sent = M.send(entry.text, s)
+	s.context = context
+	if sent then table.remove(s.queue, 1) end
+	M.render()
+end
+function M.queue_prompt()
+	local s = current()
+	if not s then return end
+	local text = table.concat(api.nvim_buf_get_lines(s.input_buf, 0, -1, false), "\n")
+	if vim.trim(text) ~= "" then
+		if slash_command(text) then notify("명령은 Enter로 실행하세요."); return end
+		s.queue = s.queue or {}
+		table.insert(s.queue, { text = text, context = vim.deepcopy(s.context), mode = s.mode })
+		api.nvim_buf_set_lines(s.input_buf, 0, -1, false, { "" })
+		s.prompt_history = nil
+		M.render()
+	elseif not s.queue or #s.queue == 0 then
+		M.focus()
+		return
+	end
+	M.drain_queue(s)
+end
+function M.clear_queue()
+	local s = current()
+	if s then s.queue = {}; M.render() end
 end
 function M.cancel()
 	local s = current()
@@ -1011,8 +1060,7 @@ function M.open(first, last)
 		if vim.fn.pumvisible() == 1 then
 			return vim.fn.complete_info({ "selected" }).selected >= 0 and "<C-y>" or "<C-n><C-y>"
 		end
-		vim.schedule(M.focus)
-		return ""
+		return "<Cmd>lua require('codex_cli.chat').queue_prompt()<CR>"
 	end, { buffer = ui.input_buf, expr = true })
 	for key, next_item in pairs({ ["<Down>"] = "<C-n>", ["<Up>"] = "<C-p>" }) do
 		vim.keymap.set("i", key, function()
@@ -1067,6 +1115,7 @@ function M.new()
 		return
 	end
 	s.model_picker = nil
+	s.queue = {}
 	s.prompt_history = nil
 	s.thread, s.messages, s.diff, s.mode, s.attached = nil, {}, nil, "ask", false
 	save(s)

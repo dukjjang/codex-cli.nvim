@@ -47,6 +47,8 @@ function M.setup(opts)
 		CodexNew = chat.new,
 		CodexStop = chat.cancel,
 		CodexDiff = chat.diff,
+		CodexQueue = chat.queue_prompt,
+		CodexQueueClear = chat.clear_queue,
 		CodexMode = chat.mode,
 		CodexModel = chat.model,
 		CodexSkills = chat.skills,
