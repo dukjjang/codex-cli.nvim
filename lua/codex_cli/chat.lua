@@ -298,6 +298,7 @@ local function agent_message(s, id)
 end
 local function event(s, msg, rpc)
 	local p, method = msg.params or {}, msg.method
+	if method == "skills/changed" then s.skills = nil; return end
 	if msg.id then
 		if method == "item/commandExecution/requestApproval" or method == "item/fileChange/requestApproval" then
 			local detail = p.command or p.reason or "파일 변경"
@@ -398,8 +399,9 @@ local function event(s, msg, rpc)
 		end
 	end
 end
-local function connect(s, callback)
+local function ready(s, callback)
 	if not s.rpc or not s.rpc.job then
+		s.skills = nil
 		s.rpc = require("codex_cli.rpc").new(opts.command, s.cwd, function(msg, rpc)
 			event(s, msg, rpc)
 		end, function(code, err)
@@ -416,7 +418,10 @@ local function connect(s, callback)
 	if not s.rpc.job then
 		return
 	end
-	s.rpc:when_ready(function()
+	s.rpc:when_ready(callback)
+end
+local function connect(s, callback)
+	ready(s, function()
 		if s.thread and s.attached then
 			callback()
 			return
@@ -485,6 +490,56 @@ function M.model()
 		end)
 	end)
 end
+local function load_skills(s, callback)
+	if s.skills then
+		callback(s.skills)
+		return
+	end
+	ready(s, function()
+		require("codex_cli.skills").list(s.rpc, s.cwd, function(skills, err)
+			if err then
+				notify("스킬 목록을 불러오지 못했습니다: " .. err.message)
+				callback({})
+				return
+			end
+			s.skills = skills
+			callback(skills)
+		end)
+	end)
+end
+function M.skills()
+	if not valid(ui.output_win) then M.open() end
+	local s = current()
+	if not s or not valid(ui.input_win) then return end
+	s.skills = nil
+	load_skills(s, function(skills)
+		if current() ~= s or not valid(ui.input_win) then return end
+		vim.ui.select(skills, {
+			prompt = "Codex · 스킬 선택",
+			format_item = function(skill) return "$" .. skill.name .. " — " .. skill.description end,
+		}, function(skill)
+			if current() ~= s or not valid(ui.input_win) then return end
+			if skill then
+				local draft = api.nvim_buf_get_lines(s.input_buf, 0, -1, false)
+				draft[1] = "$" .. skill.name .. " " .. draft[1]
+				api.nvim_buf_set_lines(s.input_buf, 0, -1, false, draft)
+			end
+			vim.schedule(function()
+				if current() ~= s or not valid(ui.input_win) then return end
+				M.focus_input()
+				if skill then
+					local draft = api.nvim_buf_get_lines(s.input_buf, 0, -1, false)
+					api.nvim_win_set_cursor(ui.input_win, { #draft, #draft[#draft] })
+					vim.cmd("startinsert!")
+				end
+			end)
+		end)
+	end)
+end
+local commands = {
+	{ word = "/model", menu = "모델과 추론 강도" },
+	{ word = "/skills", menu = "설치된 스킬 선택" },
+}
 local function capture(first, last)
 	local buf = api.nvim_get_current_buf()
 	if vim.bo[buf].buftype ~= "" then
@@ -538,11 +593,11 @@ function M.send(text)
 		notify("모델 선택을 마친 뒤 보내세요.")
 		return
 	end
-	if vim.trim(text) == "/model" then
+	if vim.trim(text) == "/model" or vim.trim(text) == "/skills" then
 		if from_input then
 			api.nvim_buf_set_lines(s.input_buf, 0, -1, false, { "" })
 		end
-		M.model()
+		if vim.trim(text) == "/skills" then M.skills() else M.model() end
 		return
 	end
 	if s.mode == "apply" then
@@ -583,22 +638,32 @@ function M.send(text)
 		.. (s.context and "\n\n" .. s.context.text or "")
 	connect(s, function()
 		status(s, "생각 중")
-		s.rpc:request("turn/start", {
-			threadId = s.thread,
-			model = s.model,
-			effort = s.effort,
-			cwd = s.cwd,
-			approvalPolicy = "on-request",
-			sandboxPolicy = s.mode == "ask" and { type = "readOnly" }
-				or { type = "workspaceWrite", writableRoots = { s.cwd }, networkAccess = false },
-			input = { { type = "text", text = prompt } },
-		}, function(result, err)
-			if err then
-				error_message(s, err)
-			else
-				s.turn = s.busy and result.turn.id or nil
-			end
-		end)
+		local function send(skills)
+			if not s.busy then return end
+			local input = { { type = "text", text = prompt } }
+			vim.list_extend(input, require("codex_cli.skills").inputs(text, skills))
+			s.rpc:request("turn/start", {
+				threadId = s.thread,
+				model = s.model,
+				effort = s.effort,
+				cwd = s.cwd,
+				approvalPolicy = "on-request",
+				sandboxPolicy = s.mode == "ask" and { type = "readOnly" }
+					or { type = "workspaceWrite", writableRoots = { s.cwd }, networkAccess = false },
+				input = input,
+			}, function(result, err)
+				if err then
+					error_message(s, err)
+				else
+					s.turn = s.busy and result.turn.id or nil
+				end
+			end)
+		end
+		if text:find("$", 1, true) then
+			load_skills(s, send)
+		else
+			send({})
+		end
 	end)
 end
 function M.cancel()
@@ -859,9 +924,31 @@ function M.open(first, last)
 		map("n", "q", M.dismiss)
 		map("n", "gd", M.diff)
 	end
+	vim.keymap.set("n", "<CR>", "Gzb", { buffer = ui.output_buf, silent = true })
+	vim.bo[ui.input_buf].completeopt = "menu,menuone,noselect"
+	require("codex_cli.completion").setup(ui.input_buf, commands, function(callback)
+		load_skills(s, callback)
+	end)
 	vim.keymap.set("i", "<CR>", function()
-		M.send()
-	end, { buffer = ui.input_buf })
+		if vim.fn.pumvisible() == 1 then
+			local completion = vim.fn.complete_info({ "selected", "items" })
+			local item = completion.items[math.max(1, completion.selected + 1)]
+			local accept = completion.selected >= 0 and "<C-y>" or "<C-n><C-y>"
+			if item and item.word:sub(1, 1) == "/" then
+				return accept .. "<Cmd>lua require('codex_cli.chat').send()<CR>"
+			end
+			return accept
+		end
+		vim.schedule(M.send)
+		return ""
+	end, { buffer = ui.input_buf, expr = true })
+	vim.keymap.set("i", "<Tab>", function()
+		if vim.fn.pumvisible() == 1 then
+			return vim.fn.complete_info({ "selected" }).selected >= 0 and "<C-y>" or "<C-n><C-y>"
+		end
+		vim.schedule(M.focus)
+		return ""
+	end, { buffer = ui.input_buf, expr = true })
 	for key, next_item in pairs({ ["<Down>"] = "<C-n>", ["<Up>"] = "<C-p>" }) do
 		vim.keymap.set("i", key, function()
 			if vim.fn.pumvisible() == 1 then return next_item end
@@ -871,6 +958,11 @@ function M.open(first, last)
 	vim.keymap.set("i", "<S-Tab>", function()
 		if vim.fn.pumvisible() == 1 then return "<C-p>" end
 		vim.schedule(M.mode)
+		return ""
+	end, { buffer = ui.input_buf, expr = true })
+	vim.keymap.set("i", "<Esc>", function()
+		if vim.fn.pumvisible() == 1 then return "<C-e>" end
+		vim.schedule(M.dismiss)
 		return ""
 	end, { buffer = ui.input_buf, expr = true })
 	vim.keymap.set("i", "<M-CR>", "<CR>", { buffer = ui.input_buf })

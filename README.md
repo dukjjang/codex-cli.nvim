@@ -121,6 +121,7 @@ Codex가 별도 승인을 요구하면 Neovim의 선택 UI로 확인합니다.
 | `<leader>ad` | 마지막 변경 내역 |
 | `/model` + `Enter` | 모델과 추론 강도 선택 |
 | `Enter` / `Ctrl-S` | 입력창에서 전송 |
+| `Enter` (대화창 Normal 모드) | 대화 맨 아래로 이동 |
 | `Alt-Enter` | 입력창에서 줄바꿈 |
 | `Ctrl-O` | 입력창에서 Normal 모드로 전환하여 여러 줄 편집 |
 | `Ctrl-K` | 답변창으로 이동, Normal 모드에서 `j/k`로 읽기 |
@@ -189,3 +190,7 @@ GitHub Actions에서도 Neovim 0.11.4와 0.12.5로 실행합니다.
 - Neovim 0.12와 구형 `nvim-treesitter`를 함께 사용할 때는 로드된 구형 query directive를 호환 처리합니다.
 - 터미널 안의 코드에 실제 blur를 적용하는 기능은 없습니다. 투명도와 dim으로 가독성을 조절합니다.
 - 개발용 로컬 checkout을 쓰려면 lazy.nvim 설정에 `dir = "/path/to/codex-cli.nvim"`을 추가하면 됩니다.
+
+## 스킬 자동완성
+
+입력창에서 `$`로 스킬을 검색합니다. 스킬명을 우선 표시하고 설명은 최대 24칸에서 `…` 처리합니다. 창이 좁으면 설명부터 줄입니다. 방향키로 선택하고 Tab 또는 Enter로 전체 이름을 입력한 뒤 요청을 전송하세요. `/model`과 `/skills` 명령도 자동완성합니다.
