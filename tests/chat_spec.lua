@@ -1,7 +1,10 @@
 vim.opt.rtp:prepend(vim.fn.getcwd())
 vim.o.columns, vim.o.lines = 120, 40
+local extra_root = vim.fn.tempname()
+vim.fn.mkdir(extra_root, "p")
+vim.env.CODEX_TEST_WRITABLE_ROOT = (vim.uv or vim.loop).fs_realpath(extra_root)
 require("codex_cli").setup({
-	chat = { history = false, command = { "python3", vim.fn.getcwd() .. "/tests/fake_server.py" } },
+	chat = { history = false, writable_roots = { extra_root }, command = { "python3", vim.fn.getcwd() .. "/tests/fake_server.py" } },
 })
 local chat = require("codex_cli.chat")
 local function wait(predicate)
@@ -41,7 +44,7 @@ vim.cmd("close")
 chat.open()
 chat.send("STREAM")
 wait(function()
-	return s.received and s.busy and ui.loading_row == nil
+	return s.received and s.busy and ui.loading_row ~= nil
 end)
 wait(function()
 	return not s.busy
@@ -49,6 +52,17 @@ end)
 wait(function()
 	return ui.loading_timer == nil
 end)
+for _, phase in ipairs({ { "reasoning", "생각 중" }, { "commandExecution", "명령 실행 중" }, { "fileChange", "코드 수정 중" } }) do
+	chat.send("ACTIVITY_CHECK " .. phase[1])
+	wait(function() return s.received and s.status == phase[2] and ui.loading_row ~= nil end)
+	local marks = vim.api.nvim_buf_get_extmarks(ui.output_buf, vim.api.nvim_create_namespace("codex_chat_loading"), 0, -1, { details = true })
+	wait(function()
+		return vim.inspect(vim.api.nvim_buf_get_extmarks(ui.output_buf, vim.api.nvim_create_namespace("codex_chat_loading"), 0, -1, { details = true })) ~= vim.inspect(marks)
+	end)
+	assert(s.busy, "activity must keep animating after the first response")
+	chat.cancel()
+	wait(function() return not s.busy and ui.loading_timer == nil end)
+end
 chat.send("HOLD")
 wait(function()
 	return s.turn ~= nil
@@ -60,7 +74,7 @@ local loading_ns = vim.api.nvim_create_namespace("codex_chat_loading")
 local function loading_text()
 	return vim.inspect(vim.api.nvim_buf_get_extmarks(ui.output_buf, loading_ns, 0, -1, { details = true }))
 end
-assert(loading_text():find("답변을 준비하고 있어요", 1, true))
+assert(loading_text():find("생각 중", 1, true))
 local tick = vim.api.nvim_buf_get_changedtick(ui.output_buf)
 local previous = loading_text()
 wait(function()
@@ -99,5 +113,6 @@ for _, size in ipairs({ { 80, 24 }, { 30, 16 }, { 180, 55 } }) do
 end
 chat.close()
 s.rpc:stop()
+vim.fn.delete(extra_root, "rf")
 print("PASS: streaming, context, drafts, follow-up, apply protection, diff, interrupt, reset, resize")
 vim.cmd("qa!")

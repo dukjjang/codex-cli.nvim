@@ -1,0 +1,17 @@
+# Require a fresh approval even if another rule allows these commands.
+prefix_rule(
+    pattern = [["git", "/usr/bin/git", "/usr/local/bin/git", "/opt/homebrew/bin/git"], ["commit", "push"]],
+    decision = "prompt",
+    justification = "커밋·푸시는 사용자가 이번 실행을 허용해야 합니다.",
+    match = ["git commit -m test", "git push origin main", "/usr/bin/git push"],
+    not_match = ["git status", "git diff", "git log"],
+)
+
+# Global Git options can change the repository, command aliases, or executable.
+# Ask for these invocations too, including otherwise read-only commands.
+prefix_rule(
+    pattern = [["git", "/usr/bin/git", "/usr/local/bin/git", "/opt/homebrew/bin/git"], ["-C", "-c", "--git-dir", "--work-tree", "--bare", "--exec-path", "--config-env"]],
+    decision = "prompt",
+    justification = "Git 전역 옵션을 사용하는 명령은 실행 내용을 확인한 뒤 허용하세요.",
+    match = ["git -C /tmp/repo push", "git -c alias.publish=push publish"],
+)
