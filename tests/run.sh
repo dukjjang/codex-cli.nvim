@@ -9,6 +9,7 @@ export XDG_DATA_HOME="$test_root/data"
 export XDG_STATE_HOME="$test_root/state"
 export XDG_CACHE_HOME="$test_root/cache"
 nvim --headless -u NONE -i NONE -l tests/chat_spec.lua
+nvim --headless -u NONE -i NONE -l tests/instructions_spec.lua
 nvim --headless -u NONE -i NONE -l tests/editor_spec.lua
 nvim --headless -u NONE -i NONE -l tests/live_reload_spec.lua
 nvim --headless -u NONE -i NONE -l tests/history_spec.lua

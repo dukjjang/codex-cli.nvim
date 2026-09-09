@@ -1,5 +1,5 @@
 """Deterministic app-server fixture; never calls a model or touches project files."""
-import json, sys, time
+import json, os, sys, time
 
 def emit(value):
     raw = json.dumps(value, ensure_ascii=False) + '\n'
@@ -37,8 +37,10 @@ for raw in sys.stdin:
         if 'HOLD' in text:
             continue
         response = [params.get('model', 'default') + ' / ' + str(params.get('effort', 'default'))] if 'MODEL_CHECK' in text else ['안녕', '하세요.\n', '```lua\nprint("hello")\n```']
+        if 'INSTRUCTIONS_CHECK' in text:
+            response = [text.split('External instructions for this request', 1)[1].split('End of external instructions.', 1)[0]]
         for delta in response:
-            emit({'method': 'item/agentMessage/delta', 'params': {'threadId': 'test-thread', 'itemId': str(msg['id']), 'delta': delta}})
+            emit({'method': 'item/agentMessage/delta', 'params': {'threadId': 'test-thread', 'itemId': str(os.getpid()) + ':' + str(msg['id']), 'delta': delta}})
             if 'STREAM' in text:
                 time.sleep(.2)
         emit({'method': 'turn/diff/updated', 'params': {'threadId': 'test-thread', 'diff': '--- a/test.lua\n+++ b/test.lua\n@@ -1 +1 @@\n-old\n+new'}})

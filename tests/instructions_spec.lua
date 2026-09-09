@@ -1,0 +1,102 @@
+vim.opt.rtp:prepend(vim.fn.getcwd())
+vim.o.columns, vim.o.lines = 120, 40
+local root = vim.fn.getcwd()
+local data_home = vim.fn.tempname()
+vim.env.XDG_DATA_HOME = data_home
+local directory = vim.fn.tempname() .. " instructions"
+vim.fn.mkdir(directory, "p")
+local path = directory .. "/quality rules.md"
+vim.fn.writefile({ "Quality version ONE" }, path)
+require("codex_cli").setup({ chat = { history = false, command = { "python3", root .. "/tests/fake_server.py" } } })
+local instructions = require("codex_cli.instructions")
+local chat = require("codex_cli.chat")
+local function wait(predicate)
+	assert(vim.wait(5000, predicate, 10), "instruction test timed out")
+end
+vim.api.nvim_cmd({ cmd = "CodexInstructions", args = { path } }, {})
+assert(instructions.path() == path)
+-- A fresh process loads the persisted registration with no setup option.
+local child = vim.fn.jobstart({ vim.v.progpath, "--embed", "--headless", "-u", "NONE", "-i", "NONE" }, { rpc = true })
+local restored = vim.rpcrequest(child, "nvim_exec_lua", [[
+	vim.opt.rtp:prepend(...)
+	local instructions = require('codex_cli.instructions')
+	instructions.setup()
+	return instructions.load()
+]], { root })
+vim.fn.jobstop(child)
+assert(restored:find("Quality version ONE", 1, true), "registration must survive restart")
+chat.open()
+local s = chat._ui.session
+local function send()
+	chat.send("INSTRUCTIONS_CHECK")
+	wait(function() return not s.busy end)
+	return s.messages[#s.messages].text
+end
+assert(send():find("Quality version ONE", 1, true), "ask must receive instructions")
+chat.mode()
+-- Observe real file reads while exercising the actual prompt path.
+local open = io.open
+local reads = 0
+io.open = function(filename, ...)
+	if filename == path then reads = reads + 1 end
+	return open(filename, ...)
+end
+assert(send():find("Quality version ONE", 1, true), "cached guide must still be included in each apply request")
+assert(reads == 0, "unchanged guide must not reread its contents")
+vim.fn.writefile({ "Quality version TWO" }, path)
+local response = send()
+assert(response:find("Quality version TWO", 1, true) and not response:find("Quality version ONE", 1, true), "next apply turn must use fresh instructions")
+assert(reads == 1, "saved guide must refresh the cache once")
+io.open = open
+local cached_buf = vim.fn.bufadd(path)
+vim.fn.bufload(cached_buf)
+vim.api.nvim_buf_set_lines(cached_buf, 0, -1, false, { "Unsaved cached guide" })
+local before_unsaved = #s.messages
+chat.send("INSTRUCTIONS_CHECK")
+assert(#s.messages == before_unsaved, "a warm cache must not bypass unsaved guide protection")
+vim.api.nvim_buf_delete(cached_buf, { force = true })
+local count = #s.messages
+vim.api.nvim_buf_set_lines(s.input_buf, 0, -1, false, { "Keep my draft" })
+vim.fn.delete(path)
+chat.send()
+assert(#s.messages == count and not s.busy, "missing instructions must block before starting a turn")
+assert(vim.api.nvim_buf_get_lines(s.input_buf, 0, -1, false)[1] == "Keep my draft")
+vim.fn.writefile({}, path)
+chat.send()
+assert(#s.messages == count, "empty instructions must block")
+vim.fn.writefile({ string.rep("x", 65537) }, path)
+chat.send()
+assert(#s.messages == count, "oversized instructions must not be silently truncated")
+vim.fn.writefile({ "Quality version THREE" }, path)
+local buf = vim.fn.bufadd(path)
+vim.fn.bufload(buf)
+vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "Unsaved quality" })
+chat.send()
+assert(#s.messages == count, "unsaved instructions must block")
+vim.api.nvim_buf_delete(buf, { force = true })
+s.rpc:stop()
+wait(function() return not s.rpc.job end)
+assert(send():find("Quality version THREE", 1, true), "resumed conversation must receive latest instructions: " .. vim.inspect(s.messages))
+chat.new()
+assert(send():find("Quality version THREE", 1, true), "new conversations retain registration")
+vim.cmd("CodexInstructionsEdit")
+assert(vim.api.nvim_buf_get_name(0) == (vim.uv or vim.loop).fs_realpath(path), "edit command must support paths with spaces")
+vim.cmd("CodexInstructionsClear")
+assert(vim.fn.filereadable(path) == 1, "clear must keep the user's source document")
+chat.open()
+assert(send():find("No external instructions are registered.", 1, true), "clear must supersede old snapshots")
+chat.close()
+s.rpc:stop()
+instructions.setup(path)
+assert(instructions.load():find("Quality version THREE", 1, true), "setup path must work without registration")
+instructions.setup(false)
+assert(instructions.load() == "", "false must disable injection")
+local registry = vim.fn.stdpath("data") .. "/codex_cli/instructions.json"
+vim.fn.writefile({ "{broken" }, registry)
+instructions.setup()
+assert(instructions.load() == nil, "corrupt registration must not silently disable instructions")
+assert(instructions.clear())
+vim.fn.delete(directory, "rf")
+vim.fn.delete(data_home, "rf")
+print("PASS: persisted registration, ask/apply injection, live reload, fail-closed with draft preserved, resume/new, edit/clear, setup override")
+vim.cmd("qa!")

@@ -15,6 +15,27 @@ function M.setup(opts)
 	end
 	local chat = require("codex_cli.chat")
 	chat.setup(opts.chat)
+	local instructions = require("codex_cli.instructions")
+	vim.api.nvim_create_user_command("CodexInstructions", function(args)
+		if args.args ~= "" then
+			local ok, err = instructions.register(args.args)
+			vim.notify(ok and "지침 등록 완료: " .. instructions.path() or err,
+				ok and vim.log.levels.INFO or vim.log.levels.ERROR)
+			return
+		end
+		local content, err = instructions.load()
+		vim.notify(content and (instructions.path() and "적용 지침: " .. instructions.path()
+			or "등록된 지침이 없습니다. :CodexInstructions 파일경로로 등록하세요.") or err)
+	end, { nargs = "?", complete = "file", force = true, desc = "Register or inspect external instructions" })
+	vim.api.nvim_create_user_command("CodexInstructionsEdit", function()
+		if not instructions.path() then vim.notify("먼저 :CodexInstructions 파일경로로 등록하세요."); return end
+		chat.close()
+		vim.api.nvim_cmd({ cmd = "edit", args = { instructions.path() } }, {})
+	end, { force = true, desc = "Edit external instructions" })
+	vim.api.nvim_create_user_command("CodexInstructionsClear", function()
+		local ok, err = instructions.clear()
+		vim.notify(ok and "지침 등록을 해제했습니다. 원본 문서는 유지됩니다." or err)
+	end, { force = true, desc = "Unregister external instructions" })
 	local commands = {
 		CodexAsk = function(args)
 			chat.open(args.range > 0 and args.line1 or nil, args.range > 0 and args.line2 or nil)
