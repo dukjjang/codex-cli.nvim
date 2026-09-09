@@ -568,6 +568,7 @@ function M.send(text)
 	if s.mode == "apply" then
 		s.reload = require("codex_cli.live_reload").start(s.cwd)
 	end
+	s.prompt_history = nil
 	s.busy, s.scroll, s.diff = true, true, nil
 	s.started_at, s.received = (vim.uv or vim.loop).hrtime(), false
 	table.insert(s.messages, { role = "나 · " .. (s.mode == "ask" and "질문" or "적용"), text = text })
@@ -611,6 +612,28 @@ function M.cancel()
 	elseif s and s.busy and s.rpc then
 		s.rpc:stop()
 	end
+end
+function M.prompt_history(direction)
+	local s = current()
+	if not s or api.nvim_get_current_buf() ~= s.input_buf then return end
+	if not s.prompt_history then
+		if direction > 0 then return end
+		local entries = {}
+		for _, message in ipairs(s.messages) do
+			if message.role == "나 · 질문" or message.role == "나 · 적용" then
+				entries[#entries + 1] = lines(message.text)
+			end
+		end
+		if #entries == 0 then return end
+		entries[#entries + 1] = api.nvim_buf_get_lines(s.input_buf, 0, -1, false)
+		s.prompt_history = { entries = entries, index = #entries }
+	end
+	local history = s.prompt_history
+	history.entries[history.index] = api.nvim_buf_get_lines(s.input_buf, 0, -1, false)
+	history.index = math.max(1, math.min(#history.entries, history.index + direction))
+	local content = history.entries[history.index]
+	api.nvim_buf_set_lines(s.input_buf, 0, -1, false, content)
+	api.nvim_win_set_cursor(0, { #content, #content[#content] })
 end
 function M.mode()
 	local s = current()
@@ -839,6 +862,12 @@ function M.open(first, last)
 	vim.keymap.set("i", "<CR>", function()
 		M.send()
 	end, { buffer = ui.input_buf })
+	for key, next_item in pairs({ ["<Down>"] = "<C-n>", ["<Up>"] = "<C-p>" }) do
+		vim.keymap.set("i", key, function()
+			if vim.fn.pumvisible() == 1 then return next_item end
+			return "<Cmd>lua require('codex_cli.chat').prompt_history(" .. (key == "<Up>" and "-1" or "1") .. ")<CR>"
+		end, { buffer = ui.input_buf, expr = true })
+	end
 	vim.keymap.set("i", "<S-Tab>", function()
 		if vim.fn.pumvisible() == 1 then return "<C-p>" end
 		vim.schedule(M.mode)
@@ -881,6 +910,7 @@ function M.new()
 		return
 	end
 	s.model_picker = nil
+	s.prompt_history = nil
 	s.thread, s.messages, s.diff, s.mode, s.attached = nil, {}, nil, "ask", false
 	save(s)
 	status(s, "새 대화")
